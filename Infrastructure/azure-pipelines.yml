@@ -1,0 +1,69 @@
+trigger:
+- none
+
+parameters:
+  - name: environment
+    displayName: 'Select Environment'
+    type: string
+    default: 'dev'
+    values:
+      - 'dev'
+      - 'ppe'
+      - 'prod'
+
+variables:
+  terraformWorkingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  environment: ${{ parameters.environment }}
+
+stages:
+  - stage: tfvalidate
+    jobs:
+      - job: validate
+        continueOnError: false
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: 'latest'
+            displayName: 'Install Terraform'
+
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              backendServiceArm: 'Azure subscription 1(fc88d33d-51a8-4bf2-8ceb-5d1de34af3a0)'
+              backendAzureRmResourceGroupName: '001_test_rg'
+              backendAzureRmStorageAccountName: 'sttestingstoragelng'
+              backendAzureRmContainerName: 'terraform'
+              backendAzureRmKey: 'tf/terraform.state'
+            displayName: 'Initialize Terraform'
+
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: 'azurerm'
+              command: 'validate'
+            displayName: 'Validate Terraform Configuration'
+
+  - stage: tfdeploy
+    condition: succeeded('tfvalidate')
+    dependsOn: tfvalidate
+    jobs:
+
+      - job: apply
+        displayName: 'Apply Terraform Configuration'
+        steps:
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Plan'
+            inputs:
+              provider: 'azurerm'
+              command: 'plan'
+              workingDirectory: '$(terraformWorkingDirectory)'
+              commandOptions: '-var-file=$(terraformWorkingDirectory)/Infrastructure/envs/$(environment)/terraform.tfvars'
+
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Apply'
+            inputs:
+              provider: 'azurerm'
+              command: 'apply'
+              workingDirectory: '$(terraformWorkingDirectory)'
+              commandOptions: '-var-file=$(terraformWorkingDirectory)/Infrastructure/envs/$(environment)/terraform.tfvars -auto-approve'
+              environmentServiceName: 'service-connection'
